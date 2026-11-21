@@ -1,0 +1,64 @@
+{
+  "model_type": "Binary Vietnamese SMS ham vs spam/scam",
+  "labels": {
+    "0": "SMS hợp lệ",
+    "1": "SMS rác / nghi vấn lừa đảo"
+  },
+  "selected_nb": "nb_optimized",
+  "selected_nb_method": "nb_word_12_a0p1_prior_false",
+  "selected_svm": "svm",
+  "selected_svm_method": "svm_char_35_c0p5_weight_balanced",
+  "recommended_model": "svm",
+  "recommended_method": "svm_char_35_c0p5_weight_balanced",
+  "selected_by": "Macro-F1 validation, then recall and precision of label 1; test is held out",
+  "models_compared_on_test": [
+    "nb_word_1",
+    "nb_optimized",
+    "svm"
+  ],
+  "model_artifacts": {
+    "nb_word_1": "nb_word_1.joblib",
+    "nb_optimized": "nb_optimized.joblib",
+    "svm": "svm.joblib"
+  },
+  "model_configurations": {
+    "nb_word_1": {
+      "family": "Multinomial Naive Bayes",
+      "vectorizer": "word_1",
+      "alpha": 1.0,
+      "fit_prior": true,
+      "role": "baseline",
+      "method": "nb_word_1",
+      "artifact": "nb_word_1.joblib"
+    },
+    "nb_optimized": {
+      "family": "Multinomial Naive Bayes",
+      "vectorizer": "word_12",
+      "alpha": 0.1,
+      "fit_prior": false,
+      "role": "candidate",
+      "method": "nb_word_12_a0p1_prior_false",
+      "artifact": "nb_optimized.joblib"
+    },
+    "svm": {
+      "family": "Linear SVM",
+      "vectorizer": "char_35",
+      "C": 0.5,
+      "class_weight": "balanced",
+      "role": "candidate",
+      "method": "svm_char_35_c0p5_weight_balanced",
+      "artifact": "svm.joblib"
+    }
+  },
+  "random_seed": 42,
+  "validation_size": 0.2,
+  "timestamp_utc": "2026-11-21T16:30:48.703019+00:00",
+  "sklearn_version": "1.9.1",
+  "dataset_version": {
+    "train_sha256": "bf5c34567685fcb9d73e5087289fbc64a196d39fd63d43d027bb68737786da32",
+    "test_sha256": "166c27e44e90c6648df07c1bf03b7106a909d62d2b5122a727405a3ba8c68391"
+  },
+  "preprocessing": "NFC + lowercase + whitespace normalization + conservative teencode mapping in serialized pipeline",
+  "explainability": "observed TF-IDF contribution; SVM margin coefficients or NB log-probability differences; not causal proof",
+  "warning": "Label 1 combines spam and suspected scam; it is not proof of fraudulent behavior. SVM margins are not probabilities."
+}

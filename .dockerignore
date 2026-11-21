@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+__pycache__
+.pytest_cache
+artifacts_archive
+tests
+data/app_history.db
+data/app_history.db-*
+data/uploads
+data/exports
+logs
+*.pyc

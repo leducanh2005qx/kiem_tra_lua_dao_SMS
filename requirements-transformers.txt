@@ -1,0 +1,6 @@
+torch>=2.2,<3
+transformers>=4.40,<5
+datasets>=2.18,<4
+underthesea>=6.8,<7
+accelerate>=0.28,<2
+sentencepiece>=0.2,<1
