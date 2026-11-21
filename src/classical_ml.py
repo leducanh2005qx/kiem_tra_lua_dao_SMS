@@ -446,6 +446,26 @@ def run_benchmark(processed_dir: str | Path, lock_path: str | Path, results_dir:
     _save_errors(test, predicted, "test", winner_id, results_dir)
     _save_explanations(final_model, winner_spec, results_dir / "feature_importance.csv")
     joblib.dump(final_model, results_dir / "best_classical_model.joblib")
+    # Keep a separate candidate artifact; Phase 4 will not promote it until
+    # calibration, reject thresholds and robustness checks are complete.
+    candidate_dir = Path(results_dir).parents[1] / "models" / "classical_ml"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(final_model, candidate_dir / "model.joblib")
+    lock_path = Path(lock_path)
+    candidate_manifest = {
+        "model_name": winner_id,
+        "model_version": f"classical_ml_{winner_id}",
+        "label_mapping": {label: index for index, label in enumerate(LABELS)},
+        "dataset_version": _sha256_file(lock_path),
+        "preprocessing_version": "classical_ml_phase2_v1",
+        "training_config": winner_spec,
+        "validation_metrics": validation_frame.iloc[0].to_dict(),
+        "test_metrics": test_row,
+        "calibration": {"status": "pending_phase4"},
+        "threshold": {"status": "pending_phase4"},
+        "artifact": "model.joblib",
+    }
+    (candidate_dir / "model_manifest.json").write_text(json.dumps(candidate_manifest, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     (results_dir / "confusion_matrices" / f"{winner_id}.csv").write_text(pd.DataFrame(confusion_matrix(test["label_id"], predicted, labels=LABEL_IDS), index=LABELS, columns=LABELS).to_csv(), encoding="utf-8")
     report_path = Path(report_path)
     report_path.write_text(f"# Classical ML Report – Phase 2\n\nDataset đã khóa và benchmark hoàn tất. Model được chọn bằng validation: `{winner_id}`. Kết quả test nằm tại `results/classical_ml/test_metrics.csv`. Không thay thế model nhị phân đang chạy trên website.\n", encoding="utf-8")

@@ -1,0 +1,28 @@
+{
+  "model_name": "vinai/phobert-base",
+  "model_license": "MIT (verify the model card before distribution)",
+  "alternative_model": "vinai/phobert-base-v2",
+  "alternative_license": "AGPL-3.0 (do not use in product without legal review)",
+  "max_length": 256,
+  "learning_rate": 2e-05,
+  "epochs": 5,
+  "train_batch_size": 16,
+  "eval_batch_size": 16,
+  "gradient_accumulation_steps": 1,
+  "weight_decay": 0.01,
+  "warmup_ratio": 0.1,
+  "early_stopping_patience": 2,
+  "seed": 42,
+  "num_labels": 4,
+  "label2id": {
+    "LEGITIMATE": 0,
+    "PROMOTION": 1,
+    "PHISHING": 2,
+    "FINANCIAL_SCAM": 3
+  },
+  "segmentation": {
+    "backend": "VnCoreNLP RDRSegmenter",
+    "annotators": ["wseg"],
+    "cache_file": "data/interim/colab_word_segmentation_cache.json"
+  }
+}

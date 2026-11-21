@@ -111,6 +111,16 @@ Hiện lệnh trả về `BLOCKED` vì Phase 1 chưa có mẫu verified; không 
 
 Kiểm tra URL và trạng thái các module mới nằm trong trang **URL & hệ thống** của Streamlit. Module chưa đủ dependency/dữ liệu sẽ hiển thị trạng thái rõ ràng thay vì tạo nút hoạt động giả.
 
+## Phase 4: calibration, robustness và production selection
+
+Audit registry bằng:
+
+```powershell
+python scripts/phase4_selection.py audit
+```
+
+Phase 4 chỉ chấp nhận artifact bốn lớp có manifest đầy đủ, dataset lock, metrics validation/test, calibration và threshold đã kiểm tra. Giao diện thống nhất nằm ở `src/prediction_interface.py`; trạng thái `REVIEW` không phải lớp thứ năm. Khi chưa có production candidate, Streamlit tiếp tục dùng model nhị phân cũ và không bị thay thế tự động. Báo cáo ở `docs/FINAL_MODEL_SELECTION_REPORT.md`, registry ở `models/registry/model_registry.json`.
+
 ## Nguồn và giới hạn
 
 Dataset: [Vietnamese Quality-Assured SMS Scam Dataset](https://huggingface.co/datasets/trannguyenthaituan/vietnamese_sms_dataset), được mô tả là CC BY 4.0 trong nguồn. Dự án chỉ phân tích text, không xác thực người gửi, domain, giao dịch hoặc tính hợp pháp của SMS. Template gần giống vẫn có thể tồn tại giữa các split; báo cáo hiện chỉ lọc exact duplicate và ghi rõ giới hạn này.
