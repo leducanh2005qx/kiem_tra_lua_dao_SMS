@@ -99,7 +99,25 @@ python scripts/classical_ml_benchmark.py lock
 python scripts/classical_ml_benchmark.py run
 ```
 
-Hiện lệnh trả về `BLOCKED` vì Phase 1 chưa có mẫu verified; không có metric giả. Khi đủ dữ liệu, benchmark sẽ chọn cấu hình bằng validation, fit lại trên train+validation và chỉ đánh giá test sau đó. Kết quả nằm ở `results/classical_ml/`, báo cáo ở `docs/CLASSICAL_ML_REPORT.md`. Các model nhị phân cũ và model đang dùng trên website không bị thay thế.
+Hiện lệnh trả về `BLOCKED` vì Phase 1 chưa có mẫu verified; không có metric giả. Khi đủ dữ liệu, benchmark sẽ chọn cấu hình bằng validation, fit lại trên train+validation và chỉ đánh giá test sau đó. Kết quả nghiên cứu nằm ở `results/multiclass/`, báo cáo ở `docs/MULTICLASS_TRAINING_REPORT.md`. Các model nhị phân cũ và model đang dùng trên website không bị thay thế.
+
+## Pipeline SCAM/NOT_SCAM
+
+Pipeline phát hiện lừa đảo có nhãn rõ ràng nằm ở `scripts/train_scam_model.py`. Nó chỉ nhận `SCAM` và `NOT_SCAM` sau khi người dùng xác minh; `NEEDS_REVIEW` không được train. Model cũ label `1` vẫn chỉ là spam/nghi vấn và không được tự động đổi tên thành scam.
+
+```powershell
+python scripts/dataset_pipeline.py migrate-schema
+python scripts/train_scam_model.py audit
+python scripts/train_scam_model.py train
+```
+
+Kết quả readiness: `docs/TRAINING_READINESS_AUDIT.md`, training report: `docs/TRAINING_REPORT.md` và `results/training_report.json`. Artifact mới, khi đủ dữ liệu, được lưu riêng tại `models/scam_verified/`; không ghi đè các model hiện hành.
+
+## Gắn nhãn thủ công
+
+Mở Streamlit bằng `streamlit run app.py`, chọn **GẮN NHÃN DỮ LIỆU HUẤN LUYỆN**. Trang đọc queue cục bộ, lưu trạng thái vào `data/annotation_labels.db`, đồng bộ nhãn đã xác nhận về `data/annotations/annotation_queue.csv`, hỗ trợ tìm kiếm/lọc/skip/sửa/export và hiển thị thống kê 4 lớp. `NEEDS_REVIEW` không được xem là mẫu train.
+
+Trang cũng có bộ machine-assisted triage: chọn bộ lọc **Gợi ý máy chưa xác minh** để xem đề xuất nhãn/lý do. Đây chỉ là `PROVISIONAL`; người dùng vẫn phải kiểm tra và bấm **Xác nhận và lưu** để trở thành `VERIFIED`.
 
 ## Phase 3: URL, đa lớp, PhoBERT và API
 

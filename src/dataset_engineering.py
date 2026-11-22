@@ -32,13 +32,14 @@ VERIFIED_STATUSES = {"VERIFIED", "GOLD_VERIFIED", "ROBUSTNESS_VERIFIED"}
 QUEUE_COLUMNS = [
     "sample_id", "message", "source_name", "source_type", "source_url", "license",
     "original_label", "raw_label", "annotator_1_label", "annotator_2_label",
-    "final_label", "review_status", "confidence", "group_id", "pii_status",
-    "target_split", "notes",
+    "final_label", "layer1_label", "layer2_label", "non_scam_type", "intent_labels", "verified", "review_status", "confidence", "group_id", "pii_status",
+    "scam_type", "intent", "label_reason", "annotator_id", "suggested_label", "suggested_layer1", "suggested_layer2", "suggested_non_scam_type", "suggested_intents", "suggested_confidence", "suggestion_reasons", "suggestion_method", "target_split", "notes",
 ]
 PROCESSED_COLUMNS = [
     "sample_id", "message", "message_anonymized", "label", "label_id",
     "source_name", "source_type", "source_url", "license", "original_label",
-    "raw_label", "group_id", "pii_status", "split",
+    "raw_label", "scam_type", "intent", "label_reason", "annotator_id",
+    "layer1_label", "layer2_label", "non_scam_type", "intent_labels", "review_status", "confidence", "group_id", "pii_status", "split",
 ]
 
 URL_RE = re.compile(r"(?i)(?:https?://|www\.)[^\s<>]+")
@@ -154,10 +155,19 @@ def import_records(
             "annotator_1_label": "",
             "annotator_2_label": "",
             "final_label": "",
+            "verified": "",
             "review_status": "UNMAPPED",
             "confidence": "",
             "group_id": template_group_id(message),
             "pii_status": "raw_retained_derived_anonymized",
+            "scam_type": "",
+            "intent": "",
+            "label_reason": "",
+            "annotator_id": "",
+            "suggested_label": "",
+            "suggested_confidence": "",
+            "suggestion_reasons": "",
+            "suggestion_method": "",
             "target_split": "",
             "notes": "Imported candidate; four-class label intentionally not inferred.",
         })
@@ -174,8 +184,10 @@ def merge_candidate_files(paths: list[str | Path], output_path: str | Path) -> p
     for path in paths:
         frame = pd.read_csv(path, encoding="utf-8-sig", dtype=str, keep_default_na=False)
         missing = set(QUEUE_COLUMNS) - set(frame.columns)
-        if missing:
-            raise ValueError(f"{path}: thiếu cột {sorted(missing)}")
+        # Older candidate snapshots predate the richer annotation schema.
+        # Add blank fields during migration; never discard their provenance.
+        for column in missing:
+            frame[column] = ""
         frames.append(frame[QUEUE_COLUMNS])
     merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=QUEUE_COLUMNS)
     merged.to_csv(output_path, index=False, encoding="utf-8-sig")
@@ -299,7 +311,7 @@ def build_processed(queue_path: str | Path, processed_dir: str | Path, seed: int
     work.loc[(work["source_type"] == "synthetic") & (work["split"] != "train"), "split"] = "train"
     work["message_anonymized"] = work["message"].map(anonymize_message)
     output = work.rename(columns={"message": "message"})[
-        ["sample_id", "message", "message_anonymized", "label", "label_id", "source_name", "source_type", "source_url", "license", "original_label", "raw_label", "group_id", "pii_status", "split"]
+        ["sample_id", "message", "message_anonymized", "label", "label_id", "source_name", "source_type", "source_url", "license", "original_label", "raw_label", "scam_type", "intent", "label_reason", "annotator_id", "review_status", "confidence", "group_id", "pii_status", "split"]
     ]
     processed_dir = Path(processed_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)

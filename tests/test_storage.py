@@ -48,3 +48,34 @@ def test_analysis_privacy_feedback_filters_delete_and_export(tmp_path):
     assert delete_analysis(analysis_id, db)
     clear_history(db)
     assert activity_summary(db_path=db)["total"] == 0
+
+
+def test_hybrid_analysis_feedback_fields_and_review_states(tmp_path):
+    db = tmp_path / "hybrid.db"
+    analysis_id = add_analysis(
+        "svm",
+        0,
+        0.2,
+        "decision_margin",
+        "Cung cấp OTP",
+        save_content=True,
+        db_path=db,
+        hybrid_result={
+            "final_label": "PHISHING",
+            "risk_level": "cao",
+            "rule_override": True,
+            "needs_review": False,
+            "reasons": ["Yêu cầu OTP"],
+            "signals": [{"code": "PHISHING_CREDENTIAL_REQUEST"}],
+            "urls": [],
+            "evidence": ["Cung cấp OTP"],
+        },
+    )
+    saved = get_analysis(analysis_id, db)
+    assert saved["hybrid_label"] == "PHISHING"
+    assert saved["rule_override"] == 1
+    feedback_id = add_feedback(analysis_id, "incorrect", 2, "Sai nhãn", db, suggested_label_code="PHISHING", feedback_reason="Có yêu cầu OTP")
+    rows, total = list_feedback(status="pending_review", db_path=db)
+    assert total == 1 and rows[0]["suggested_label_code"] == "PHISHING"
+    assert update_feedback_status(feedback_id, "verified", db)
+    assert list_feedback(status="verified", db_path=db)[1] == 1

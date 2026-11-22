@@ -2,8 +2,8 @@
 
 ## Nhãn được phép
 
-- `NORMAL`: nội dung giao dịch/thông báo bình thường, không có mục đích quảng cáo rác hoặc chiếm đoạt.
-- `AD_SPAM`: quảng cáo không mong muốn, khuyến mại hàng loạt, mời chào dịch vụ nhưng chưa có dấu hiệu chiếm đoạt.
+- `LEGITIMATE`: nội dung giao dịch/thông báo bình thường, không có mục đích chiếm đoạt.
+- `PROMOTION`: quảng cáo, khuyến mại, mời chào dịch vụ nhưng chưa có dấu hiệu chiếm đoạt.
 - `PHISHING`: mạo danh hoặc dụ người nhận cung cấp OTP, mật khẩu, thông tin tài khoản, CCCD hoặc đăng nhập vào trang giả.
 - `FINANCIAL_SCAM`: yêu cầu chuyển tiền, đóng phí, nộp phạt hoặc hứa lợi ích tài chính theo cách đáng ngờ.
 

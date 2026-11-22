@@ -114,6 +114,19 @@ def rebuild_queue() -> dict:
     return {"candidate_files": [str(p) for p in candidate_files], "rows": len(merged), "queue": str(ANNOTATIONS / "annotation_queue.csv")}
 
 
+def migrate_annotation_schema() -> dict:
+    """Add annotation fields without changing SMS content or existing labels."""
+    path = ANNOTATIONS / "annotation_queue.csv"
+    frame = pd.read_csv(path, encoding="utf-8-sig", dtype=str, keep_default_na=False)
+    added = []
+    for column in QUEUE_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = ""
+            added.append(column)
+    frame[QUEUE_COLUMNS].to_csv(path, index=False, encoding="utf-8-sig")
+    return {"queue": str(path), "rows": len(frame), "added_columns": added}
+
+
 def download_source(args) -> dict:
     source = SOURCES[args.source]
     if not source["files"]:
@@ -142,6 +155,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init", help="Tạo cấu trúc và snapshot nguồn binary local, không ghi đè")
     sub.add_parser("rebuild-queue", help="Gộp các candidate interim thành annotation queue")
+    sub.add_parser("migrate-schema", help="Bổ sung cột annotation mới mà không đổi nội dung")
     sub.add_parser("audit", help="Xuất thống kê, duplicate, label và split reports")
     sub.add_parser("prepare", help="Xuất processed splits chỉ từ dòng VERIFIED")
     download = sub.add_parser("download", help="Tải nguồn có URL file ổn định, không dùng credential")
@@ -163,6 +177,8 @@ def main() -> None:
         result = import_source(args)
     elif args.command == "rebuild-queue":
         result = rebuild_queue()
+    elif args.command == "migrate-schema":
+        result = migrate_annotation_schema()
     elif args.command == "prepare":
         result = build_processed(ANNOTATIONS / "annotation_queue.csv", PROCESSED)
     elif args.command == "audit":

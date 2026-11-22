@@ -5,6 +5,8 @@ import csv
 import hashlib
 import io
 import sqlite3
+import json
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,7 +24,15 @@ CREATE TABLE IF NOT EXISTS analysis_history (
     message_length INTEGER NOT NULL CHECK (message_length >= 0),
     message_text TEXT,
     message_hash TEXT,
-    content_saved INTEGER NOT NULL DEFAULT 0 CHECK (content_saved IN (0, 1))
+    content_saved INTEGER NOT NULL DEFAULT 0 CHECK (content_saved IN (0, 1)),
+    hybrid_label TEXT,
+    risk_level TEXT,
+    rule_override INTEGER NOT NULL DEFAULT 0,
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT,
+    risk_signals TEXT,
+    risk_urls TEXT,
+    risk_evidence TEXT
 );
 
 CREATE TABLE IF NOT EXISTS prediction_feedback (
@@ -51,17 +61,65 @@ def _path(db_path=None) -> Path:
 def _connect(db_path=None):
     path = _path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.executescript(SCHEMA)
-    return connection
+    connection = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA busy_timeout=30000")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.executescript(SCHEMA)
+        migrations = {
+            "analysis_history": {
+                "hybrid_label": "TEXT",
+                "risk_level": "TEXT",
+                "rule_override": "INTEGER NOT NULL DEFAULT 0",
+                "needs_review": "INTEGER NOT NULL DEFAULT 0",
+                "risk_reasons": "TEXT",
+                "risk_signals": "TEXT",
+                "risk_urls": "TEXT",
+                "risk_evidence": "TEXT",
+            },
+            "prediction_feedback": {
+                "suggested_label_code": "TEXT",
+                "review_state": "TEXT NOT NULL DEFAULT 'pending_review'",
+                "feedback_reason": "TEXT",
+            },
+        }
+        for table, columns in migrations.items():
+            existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+            for column, definition in columns.items():
+                if column not in existing:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) < 1:
+            connection.execute("UPDATE prediction_feedback SET review_state='verified' WHERE review_status='reviewed' AND COALESCE(review_state, '') IN ('', 'pending_review')")
+            connection.execute("UPDATE prediction_feedback SET review_state='rejected' WHERE review_status='rejected' AND COALESCE(review_state, '') IN ('', 'pending_review')")
+            connection.execute("PRAGMA user_version=1")
+        connection.commit()
+        return connection
+    except Exception:
+        connection.rollback()
+        connection.close()
+        raise
+
+
+@contextmanager
+def _connection(db_path=None):
+    connection = _connect(db_path)
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def initialize_database(db_path=None):
     """Create the local database and tables; safe to call repeatedly."""
-    with _connect(db_path) as connection:
-        connection.executescript(SCHEMA)
+    with _connection(db_path):
+        pass
 
 
 def _now():
@@ -96,6 +154,7 @@ def add_analysis(
     save_content=False,
     save_hash=False,
     db_path=None,
+    hybrid_result=None,
 ):
     """Store an analysis, omitting message content unless explicitly consented."""
     if int(predicted_label) not in (0, 1):
@@ -103,13 +162,16 @@ def add_analysis(
     message = str(message or "")
     message_text = message if save_content else None
     message_hash = hashlib.sha256(message.encode("utf-8")).hexdigest() if save_hash else None
-    with _connect(db_path) as connection:
+    hybrid_result = hybrid_result or {}
+    with _connection(db_path) as connection:
         cursor = connection.execute(
             """
             INSERT INTO analysis_history
             (created_at, model_name, predicted_label, prediction_score, score_type,
-             message_length, message_text, message_hash, content_saved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             message_length, message_text, message_hash, content_saved,
+             hybrid_label, risk_level, rule_override, needs_review,
+             risk_reasons, risk_signals, risk_urls, risk_evidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _now(),
@@ -121,6 +183,14 @@ def add_analysis(
                 message_text,
                 message_hash,
                 int(bool(save_content)),
+                str(hybrid_result.get("final_label") or ""),
+                str(hybrid_result.get("risk_level") or ""),
+                int(bool(hybrid_result.get("rule_override"))),
+                int(bool(hybrid_result.get("needs_review"))),
+                json.dumps(hybrid_result.get("reasons", []), ensure_ascii=False),
+                json.dumps(hybrid_result.get("signals", []), ensure_ascii=False),
+                json.dumps(hybrid_result.get("urls", []), ensure_ascii=False),
+                json.dumps(hybrid_result.get("evidence", []), ensure_ascii=False),
             ),
         )
         return int(cursor.lastrowid)
@@ -128,7 +198,7 @@ def add_analysis(
 
 def get_analysis(analysis_id, db_path=None):
     initialize_database(db_path)
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         row = connection.execute(
             "SELECT * FROM analysis_history WHERE id = ?", (int(analysis_id),)
         ).fetchone()
@@ -148,7 +218,7 @@ def count_history(search="", label=None, model_name=None, date_from=None, date_t
         clauses.append("model_name = ?")
         params.append(model_name)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         return int(connection.execute(f"SELECT COUNT(*) FROM analysis_history{where}", params).fetchone()[0])
 
 
@@ -178,7 +248,7 @@ def list_history(
     page = max(1, int(page))
     page_size = min(100, max(1, int(page_size)))
     params.extend([page_size, (page - 1) * page_size])
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         rows = connection.execute(
             f"SELECT * FROM analysis_history{where} ORDER BY id DESC LIMIT ? OFFSET ?", params
         ).fetchall()
@@ -186,20 +256,20 @@ def list_history(
 
 
 def delete_analysis(analysis_id, db_path=None):
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         cursor = connection.execute("DELETE FROM analysis_history WHERE id = ?", (int(analysis_id),))
         return cursor.rowcount > 0
 
 
 def clear_history(db_path=None):
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         connection.execute("DELETE FROM analysis_history")
 
 
 def activity_summary(date_from=None, date_to=None, db_path=None):
     clauses, params = _date_clauses(date_from, date_to)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         row = connection.execute(
             f"""
             SELECT COUNT(*) AS total,
@@ -229,7 +299,7 @@ def activity_summary(date_from=None, date_to=None, db_path=None):
 def activity_series(date_from=None, date_to=None, db_path=None):
     clauses, params = _date_clauses(date_from, date_to)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         rows = connection.execute(
             f"""
             SELECT substr(created_at, 1, 10) AS day,
@@ -248,7 +318,7 @@ def activity_series(date_from=None, date_to=None, db_path=None):
 def label_counts(date_from=None, date_to=None, db_path=None):
     clauses, params = _date_clauses(date_from, date_to)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         rows = connection.execute(
             f"SELECT predicted_label AS label, COUNT(*) AS total FROM analysis_history{where} GROUP BY predicted_label ORDER BY predicted_label",
             params,
@@ -259,7 +329,7 @@ def label_counts(date_from=None, date_to=None, db_path=None):
 def model_counts(date_from=None, date_to=None, db_path=None):
     clauses, params = _date_clauses(date_from, date_to)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         rows = connection.execute(
             f"SELECT model_name, COUNT(*) AS total FROM analysis_history{where} GROUP BY model_name ORDER BY total DESC, model_name",
             params,
@@ -267,22 +337,28 @@ def model_counts(date_from=None, date_to=None, db_path=None):
     return [dict(row) for row in rows]
 
 
-def add_feedback(analysis_id, feedback_type, suggested_label=None, comment="", db_path=None):
+def add_feedback(analysis_id, feedback_type, suggested_label=None, comment="", db_path=None, suggested_label_code=None, feedback_reason=""):
     if feedback_type not in {"correct", "incorrect", "uncertain"}:
         raise ValueError("feedback_type không hợp lệ.")
     if suggested_label not in (None, 0, 1, 2):
         raise ValueError("suggested_label không hợp lệ.")
-    with _connect(db_path) as connection:
+    allowed_codes = {"LEGITIMATE", "PROMOTION", "PHISHING", "FINANCIAL_SCAM", "NEEDS_REVIEW"}
+    if suggested_label_code is not None and suggested_label_code not in allowed_codes:
+        raise ValueError("suggested_label_code không hợp lệ.")
+    with _connection(db_path) as connection:
         exists = connection.execute("SELECT 1 FROM analysis_history WHERE id = ?", (int(analysis_id),)).fetchone()
         if not exists:
             raise ValueError("Không tìm thấy bản ghi phân tích.")
+        duplicate = connection.execute("SELECT 1 FROM prediction_feedback WHERE analysis_id = ? AND COALESCE(review_state, 'pending_review') NOT IN ('rejected', 'duplicate') LIMIT 1", (int(analysis_id),)).fetchone()
+        review_state = "duplicate" if duplicate else "pending_review"
+        legacy_status = "rejected" if duplicate else "pending"
         cursor = connection.execute(
             """
             INSERT INTO prediction_feedback
-            (analysis_id, feedback_type, suggested_label, comment, created_at, review_status)
-            VALUES (?, ?, ?, ?, ?, 'pending')
+            (analysis_id, feedback_type, suggested_label, suggested_label_code, comment, feedback_reason, created_at, review_status, review_state)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (int(analysis_id), feedback_type, suggested_label, str(comment or ""), _now()),
+            (int(analysis_id), feedback_type, suggested_label, suggested_label_code, str(comment or ""), str(feedback_reason or ""), _now(), legacy_status, review_state),
         )
         return int(cursor.lastrowid)
 
@@ -293,6 +369,9 @@ def list_feedback(status=None, search="", page=1, page_size=50, db_path=None):
     if status in {"pending", "reviewed", "rejected"}:
         clauses.append("f.review_status = ?")
         params.append(status)
+    elif status in {"pending_review", "verified", "duplicate"}:
+        clauses.append("COALESCE(f.review_state, 'pending_review') = ?")
+        params.append(status)
     if search:
         clauses.append("(f.comment LIKE ? OR h.model_name LIKE ? OR h.message_text LIKE ?)")
         pattern = f"%{search}%"
@@ -302,14 +381,16 @@ def list_feedback(status=None, search="", page=1, page_size=50, db_path=None):
     page_size = min(100, max(1, int(page_size)))
     count_params = list(params)
     params.extend([page_size, (page - 1) * page_size])
-    with _connect(db_path) as connection:
+    with _connection(db_path) as connection:
         total = int(connection.execute(
             f"SELECT COUNT(*) FROM prediction_feedback f JOIN analysis_history h ON h.id = f.analysis_id{where}", count_params
         ).fetchone()[0])
         rows = connection.execute(
             f"""
             SELECT f.*, h.created_at AS analysis_created_at, h.model_name,
-                   h.predicted_label, h.message_text, h.message_length
+                   h.predicted_label, h.message_text, h.message_length,
+                   h.hybrid_label, h.risk_level, h.rule_override, h.risk_reasons,
+                   h.risk_signals, h.risk_urls, h.risk_evidence
             FROM prediction_feedback f
             JOIN analysis_history h ON h.id = f.analysis_id{where}
             ORDER BY f.id DESC LIMIT ? OFFSET ?
@@ -320,13 +401,15 @@ def list_feedback(status=None, search="", page=1, page_size=50, db_path=None):
 
 
 def update_feedback_status(feedback_id, status, db_path=None):
-    if status not in {"pending", "reviewed", "rejected"}:
+    if status not in {"pending", "reviewed", "rejected", "pending_review", "verified", "duplicate"}:
         raise ValueError("Trạng thái feedback không hợp lệ.")
-    reviewed_at = _now() if status != "pending" else None
-    with _connect(db_path) as connection:
+    state = {"pending": "pending_review", "reviewed": "verified", "rejected": "rejected"}.get(status, status)
+    legacy_status = {"pending_review": "pending", "verified": "reviewed", "rejected": "rejected", "duplicate": "rejected"}[state]
+    reviewed_at = _now() if state not in {"pending_review"} else None
+    with _connection(db_path) as connection:
         cursor = connection.execute(
-            "UPDATE prediction_feedback SET review_status = ?, reviewed_at = ? WHERE id = ?",
-            (status, reviewed_at, int(feedback_id)),
+            "UPDATE prediction_feedback SET review_status = ?, review_state = ?, reviewed_at = ? WHERE id = ?",
+            (legacy_status, state, reviewed_at, int(feedback_id)),
         )
         return cursor.rowcount > 0
 
@@ -336,6 +419,7 @@ def history_csv(rows):
     fields = [
         "id", "created_at", "model_name", "predicted_label", "prediction_score",
         "score_type", "message_length", "message_text", "message_hash", "content_saved",
+        "hybrid_label", "risk_level", "rule_override", "needs_review", "risk_reasons", "risk_signals", "risk_urls", "risk_evidence",
     ]
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
@@ -346,8 +430,8 @@ def history_csv(rows):
 
 def feedback_csv(rows):
     fields = [
-        "id", "analysis_id", "feedback_type", "suggested_label", "comment", "created_at",
-        "review_status", "reviewed_at", "analysis_created_at", "model_name", "predicted_label",
+        "id", "analysis_id", "feedback_type", "suggested_label", "suggested_label_code", "comment", "feedback_reason", "created_at",
+        "review_status", "review_state", "reviewed_at", "analysis_created_at", "model_name", "predicted_label",
         "message_text", "message_length",
     ]
     buffer = io.StringIO()

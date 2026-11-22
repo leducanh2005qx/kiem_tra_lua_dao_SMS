@@ -20,8 +20,8 @@ from src.preprocess import normalize_message
 
 
 MULTICLASS_LABELS = {
-    "NORMAL": 0,
-    "AD_SPAM": 1,
+    "LEGITIMATE": 0,
+    "PROMOTION": 1,
     "PHISHING": 2,
     "FINANCIAL_SCAM": 3,
 }
@@ -77,7 +77,7 @@ def load_multiclass_csv(path) -> tuple[pd.DataFrame, dict]:
 def create_annotation_template(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(columns=["message", "label", "annotation_status", "confidence", "annotator", "notes"]).to_csv(path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(columns=["sample_id", "message", "sms_content", "label", "scam_type", "intent", "reason", "label_reason", "source", "source_name", "source_type", "annotator", "annotator_id", "verified", "annotation_status", "review_status", "confidence", "group_id", "synthetic", "notes"]).to_csv(path, index=False, encoding="utf-8-sig")
     return path
 
 
